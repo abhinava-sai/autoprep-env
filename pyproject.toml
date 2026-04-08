@@ -1,0 +1,18 @@
+[project]
+name = "autoprep-env"
+version = "0.1.0"
+description = "RL environment for data cleaning using OpenEnv"
+authors = [
+    { name = "Kagana Abhinava Sai" }
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "openai",
+    "pydantic",
+    "openenv-core"
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"

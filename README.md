@@ -1,3 +1,14 @@
+---
+title: Autoprep Env
+emoji: 🐨
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: RL environment for data cleaning tasks with OpenEnv
+---
+
 # AutoPrep-Env: RL Environment for Data Cleaning
 
 ## Overview
@@ -53,9 +64,9 @@ The reward is based on:
 
 Three difficulty levels:
 
-- Easy: small number of issues
-- Medium: moderate dataset issues
-- Hard: large-scale data cleaning challenge
+- Easy: small number of issues  
+- Medium: moderate dataset issues  
+- Hard: large-scale data cleaning challenge  
 
 ---
 

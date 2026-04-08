@@ -1,0 +1,12 @@
+name: autoprep-env
+description: RL environment for data cleaning tasks
+version: 1.0.0
+
+entry_point: env.environment:DataCleaningEnv
+
+tasks:
+  - name: easy
+  - name: medium
+  - name: hard
+
+author: Kagana Abhinava Sai

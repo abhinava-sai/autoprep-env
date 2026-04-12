@@ -8,11 +8,11 @@ from env.graders import compute_score
 
 
 # ===============================
-# Environment Variables (STRICT)
+# Environment Variables (FINAL SAFE)
 # ===============================
 API_BASE_URL = os.environ["API_BASE_URL"]
-MODEL_NAME = os.environ["MODEL_NAME"]
-API_KEY = os.environ["HF_TOKEN"]   # ← IMPORTANT FIX
+API_KEY = os.environ["HF_TOKEN"]
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 
 
 # ===============================
@@ -36,7 +36,7 @@ VALID_ACTIONS = [
 
 
 # ===============================
-# LLM Policy
+# LLM Policy (Robust)
 # ===============================
 def llm_policy(state):
     prompt = f"""
@@ -63,7 +63,7 @@ Respond ONLY with the action name.
             temperature=0
         )
 
-        action = response.choices[0].message.content.strip()
+        action = (response.choices[0].message.content or "").strip()
 
         if action not in VALID_ACTIONS:
             action = "stop"
@@ -71,7 +71,7 @@ Respond ONLY with the action name.
         return action
 
     except Exception:
-        # fallback (VERY IMPORTANT)
+        # fallback ensures execution continues
         if state.duplicate_rows > 0:
             return "remove_duplicates"
         elif state.missing_values > 0:
@@ -89,11 +89,12 @@ def run():
     env = DataCleaningEnv()
     env._state = easy_task()
 
-    print(f"[START] task=easy env=autoprep model={MODEL_NAME}")
-
     rewards = []
     step_num = 0
     done = False
+    state = None  # safety
+
+    print(f"[START] task=easy env=autoprep model={MODEL_NAME}")
 
     try:
         while not done:
@@ -101,25 +102,49 @@ def run():
 
             current_state = env.state()
 
-            # MUST call LLM
+            # MUST attempt LLM call
             action_str = llm_policy(current_state)
             action = Action(action_type=action_str)
 
-            state, reward, done, info = env.step(action)
+            try:
+                state, reward, done, info = env.step(action)
+            except Exception:
+                # step failure safety
+                print(
+                    f"[STEP] step={step_num} action={action_str} "
+                    f"reward=0.00 done=true error=step_error"
+                )
+                break
 
-            reward_val = float(reward.value)
+            # safe reward extraction
+            reward_val = 0.0
+            try:
+                reward_val = float(reward.value)
+            except Exception:
+                reward_val = 0.0
+
             rewards.append(f"{reward_val:.2f}")
 
+            # safe error handling
             error_msg = "null"
-            if info and info.get("last_action_error"):
-                error_msg = info["last_action_error"]
+            try:
+                if info and info.get("last_action_error"):
+                    error_msg = info["last_action_error"]
+            except Exception:
+                error_msg = "null"
 
             print(
                 f"[STEP] step={step_num} action={action_str} "
                 f"reward={reward_val:.2f} done={str(done).lower()} error={error_msg}"
             )
 
-        score = float(compute_score(state))
+        # safe score computation
+        score = 0.0
+        try:
+            if state is not None:
+                score = float(compute_score(state))
+        except Exception:
+            score = 0.0
 
         print(
             f"[END] success={str(score == 1.0).lower()} "
@@ -127,11 +152,15 @@ def run():
         )
 
     except Exception:
+        # global safety (MANDATORY END)
         print(
             f"[END] success=false steps={step_num} score=0.00 "
             f"rewards={','.join(rewards)}"
         )
 
 
+# ===============================
+# Entry Point
+# ===============================
 if __name__ == "__main__":
     run()

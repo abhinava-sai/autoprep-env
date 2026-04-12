@@ -3,12 +3,12 @@ from openai import OpenAI
 
 from env.environment import DataCleaningEnv
 from env.models import Action
-from env.tasks import easy_task
+from env.tasks import easy_task, medium_task, hard_task
 from env.graders import compute_score
 
 
 # ===============================
-# Environment Variables (FINAL SAFE)
+# Environment Variables
 # ===============================
 API_BASE_URL = os.environ["API_BASE_URL"]
 API_KEY = os.environ["HF_TOKEN"]
@@ -36,7 +36,7 @@ VALID_ACTIONS = [
 
 
 # ===============================
-# LLM Policy (Robust)
+# LLM Policy
 # ===============================
 def llm_policy(state):
     prompt = f"""
@@ -83,18 +83,18 @@ Respond ONLY with the action name.
 
 
 # ===============================
-# Main Loop
+# Task Runner
 # ===============================
-def run():
+def run_single_task(task_name, task_fn):
     env = DataCleaningEnv()
-    env._state = easy_task()
+    env._state = task_fn()
 
     rewards = []
     step_num = 0
     done = False
-    state = None  # safety
+    state = None
 
-    print(f"[START] task=easy env=autoprep model={MODEL_NAME}")
+    print(f"[START] task={task_name} env=autoprep model={MODEL_NAME}")
 
     try:
         while not done:
@@ -102,22 +102,19 @@ def run():
 
             current_state = env.state()
 
-            # MUST attempt LLM call
             action_str = llm_policy(current_state)
             action = Action(action_type=action_str)
 
             try:
                 state, reward, done, info = env.step(action)
             except Exception:
-                # step failure safety
                 print(
                     f"[STEP] step={step_num} action={action_str} "
                     f"reward=0.00 done=true error=step_error"
                 )
                 break
 
-            # safe reward extraction
-            reward_val = 0.0
+            # reward safety
             try:
                 reward_val = float(reward.value)
             except Exception:
@@ -125,7 +122,7 @@ def run():
 
             rewards.append(f"{reward_val:.2f}")
 
-            # safe error handling
+            # error safety
             error_msg = "null"
             try:
                 if info and info.get("last_action_error"):
@@ -138,25 +135,39 @@ def run():
                 f"reward={reward_val:.2f} done={str(done).lower()} error={error_msg}"
             )
 
-        # safe score computation
-        score = 0.0
+        # compute score safely
         try:
-            if state is not None:
-                score = float(compute_score(state))
+            score = float(compute_score(state)) if state else 0.01
         except Exception:
-            score = 0.0
+            score = 0.01
+
+        # ensure strict (0,1)
+        score = max(0.01, min(score, 0.99))
 
         print(
-            f"[END] success={str(score == 1.0).lower()} "
+            f"[END] success={str(score > 0.5).lower()} "
             f"steps={step_num} score={score:.2f} rewards={','.join(rewards)}"
         )
 
     except Exception:
-        # global safety (MANDATORY END)
         print(
-            f"[END] success=false steps={step_num} score=0.00 "
+            f"[END] success=false steps={step_num} score=0.01 "
             f"rewards={','.join(rewards)}"
         )
+
+
+# ===============================
+# Main Runner
+# ===============================
+def run():
+    TASKS = [
+        ("easy", easy_task),
+        ("medium", medium_task),
+        ("hard", hard_task)
+    ]
+
+    for task_name, task_fn in TASKS:
+        run_single_task(task_name, task_fn)
 
 
 # ===============================

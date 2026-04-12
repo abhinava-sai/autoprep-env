@@ -8,44 +8,85 @@ from env.graders import compute_score
 
 
 # ===============================
-# Environment Variables
+# Environment Variables (STRICT)
 # ===============================
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
-HF_TOKEN = os.getenv("HF_TOKEN")
-
-if HF_TOKEN is None:
-    raise ValueError("HF_TOKEN environment variable is required")
+API_BASE_URL = os.environ["API_BASE_URL"]
+MODEL_NAME = os.environ["MODEL_NAME"]
+API_KEY = os.environ["HF_TOKEN"]   # ← IMPORTANT FIX
 
 
-# OpenAI Client (required by hackathon)
+# ===============================
+# OpenAI Client
+# ===============================
 client = OpenAI(
     base_url=API_BASE_URL,
-    api_key=HF_TOKEN
+    api_key=API_KEY
 )
 
 
 # ===============================
-# Simple Rule-Based Policy
+# Valid Actions
 # ===============================
-def simple_policy(state):
-    if state.duplicate_rows > 0:
-        return "remove_duplicates"
-    elif state.missing_values > 0:
-        return "fill_missing"
-    elif state.outliers > 0:
-        return "remove_outliers"
-    else:
-        return "stop"
+VALID_ACTIONS = [
+    "remove_duplicates",
+    "fill_missing",
+    "remove_outliers",
+    "stop"
+]
 
 
 # ===============================
-# Main Inference Loop
+# LLM Policy
+# ===============================
+def llm_policy(state):
+    prompt = f"""
+You are a data cleaning agent.
+
+Current dataset state:
+- duplicate_rows: {state.duplicate_rows}
+- missing_values: {state.missing_values}
+- outliers: {state.outliers}
+
+Choose EXACTLY ONE action from:
+remove_duplicates, fill_missing, remove_outliers, stop
+
+Respond ONLY with the action name.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You are a precise data cleaning agent."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0
+        )
+
+        action = response.choices[0].message.content.strip()
+
+        if action not in VALID_ACTIONS:
+            action = "stop"
+
+        return action
+
+    except Exception:
+        # fallback (VERY IMPORTANT)
+        if state.duplicate_rows > 0:
+            return "remove_duplicates"
+        elif state.missing_values > 0:
+            return "fill_missing"
+        elif state.outliers > 0:
+            return "remove_outliers"
+        else:
+            return "stop"
+
+
+# ===============================
+# Main Loop
 # ===============================
 def run():
     env = DataCleaningEnv()
-
-    # Initialize task
     env._state = easy_task()
 
     print(f"[START] task=easy env=autoprep model={MODEL_NAME}")
@@ -58,26 +99,27 @@ def run():
         while not done:
             step_num += 1
 
-            # Get current state
             current_state = env.state()
 
-            # Decide action
-            action_str = simple_policy(current_state)
+            # MUST call LLM
+            action_str = llm_policy(current_state)
             action = Action(action_type=action_str)
 
-            # Take step
-            state, reward, done, _ = env.step(action)
+            state, reward, done, info = env.step(action)
 
-            reward_val = round(reward.value, 2)
+            reward_val = float(reward.value)
             rewards.append(f"{reward_val:.2f}")
+
+            error_msg = "null"
+            if info and info.get("last_action_error"):
+                error_msg = info["last_action_error"]
 
             print(
                 f"[STEP] step={step_num} action={action_str} "
-                f"reward={reward_val:.2f} done={str(done).lower()} error=null"
+                f"reward={reward_val:.2f} done={str(done).lower()} error={error_msg}"
             )
 
-        # Compute final score
-        score = compute_score(state)
+        score = float(compute_score(state))
 
         print(
             f"[END] success={str(score == 1.0).lower()} "
@@ -91,8 +133,5 @@ def run():
         )
 
 
-# ===============================
-# Run Entry
-# ===============================
 if __name__ == "__main__":
     run()
